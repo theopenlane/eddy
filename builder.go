@@ -2,45 +2,40 @@ package eddy
 
 import (
 	"context"
-	"sync"
-	"time"
 )
 
-// ProviderType represents a provider type identifier
-type ProviderType string
-
-// ClientBuilder builds client instances with credentials and configuration
-type ClientBuilder[T any] interface {
-	WithCredentials(credentials map[string]string) ClientBuilder[T]
-	WithConfig(config map[string]any) ClientBuilder[T]
-	Build(ctx context.Context) (T, error)
-	ClientType() ProviderType
+// Builder builds client instances with output and configuration
+type Builder[T any, Output any, Config any] interface {
+	// Build constructs a client instance using the provided output and config
+	Build(ctx context.Context, output Output, config Config) (T, error)
+	// ProviderType returns the provider type identifier for cache key construction
+	ProviderType() string
 }
 
-// ClientCacheKey uniquely identifies a cached client
-type ClientCacheKey struct {
-	TenantID        string
-	IntegrationType string
-	HushID          string
-	IntegrationID   string
+// BuilderFunc is a function adapter for Builder interface
+// Use this when you want to create a Builder from a function without defining a new type
+//
+// Example:
+//
+//	builder := &BuilderFunc[*s3.Client, S3Credentials, S3Config]{
+//	    Type: "s3",
+//	    Func: func(ctx context.Context, output S3Credentials, config S3Config) (*s3.Client, error) {
+//	        return buildS3Client(ctx, output, config)
+//	    },
+//	}
+type BuilderFunc[T any, Output any, Config any] struct {
+	// Type is the provider type identifier
+	Type string
+	// Func is the function that builds the client
+	Func func(context.Context, Output, Config) (T, error)
 }
 
-// ClientEntry wraps a client instance with expiration metadata
-type ClientEntry[T any] struct {
-	Client     T
-	Expiration time.Time
+// Build implements Builder.Build
+func (b *BuilderFunc[T, Output, Config]) Build(ctx context.Context, output Output, config Config) (T, error) {
+	return b.Func(ctx, output, config)
 }
 
-// ClientPool holds cached client instances with TTL expiration
-type ClientPool[T any] struct {
-	mu      sync.RWMutex
-	clients map[ClientCacheKey]*ClientEntry[T]
-	ttl     time.Duration
-}
-
-// ClientService manages client builders and provides cached client instances
-type ClientService[T any] struct {
-	pool     *ClientPool[T]
-	builders map[ProviderType]ClientBuilder[T]
-	mu       sync.RWMutex
+// ProviderType implements Builder.ProviderType
+func (b *BuilderFunc[T, Output, Config]) ProviderType() string {
+	return b.Type
 }
